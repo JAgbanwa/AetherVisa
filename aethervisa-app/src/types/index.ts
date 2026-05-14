@@ -23,10 +23,14 @@ export interface UserProfile {
   field: string;
   workExperience: number;
   currentLocation: string;
+  targetCountry: string;          // preferred destination country
   monthlyIncome: number;
   hasJobOffer: boolean;
   hasUniversityOffer: boolean;
+  /** Primary/legacy language level — always the German level for DE visas */
   languageLevel: string;
+  /** Per-language CEFR levels, e.g. { de: 'B2', nl: 'A2', fr: 'None' } */
+  languageLevels: Record<string, string>;
   familySize: number;
 }
 

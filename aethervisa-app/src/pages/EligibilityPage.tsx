@@ -5,6 +5,7 @@ import { COUNTRIES, EDUCATION_LEVELS, RESEARCH_FIELDS } from '../data';
 import { calculateEligibility } from '../hooks/useEligibility';
 import { getUpdatesForVisa } from '../data/lawUpdates';
 import { LawUpdatesPill } from '../components/LawUpdatesBanner';
+import * as pdfjsLib from 'pdfjs-dist';
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
   Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink,
@@ -12,20 +13,78 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 
+// Configure pdf.js worker (uses bundled legacy build to avoid CDN dependency)
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
+
 const defaultProfile: UserProfile = {
   nationality: '',
   education: '',
   field: '',
   workExperience: 0,
   currentLocation: '',
+  targetCountry: '',
   monthlyIncome: 0,
   hasJobOffer: false,
   hasUniversityOffer: false,
   languageLevel: 'None',
+  languageLevels: {},
   familySize: 1,
 };
 
 // ── CV auto-fill ─────────────────────────────────────────────────────────────
+
+/** Strip LaTeX markup from .tex source, leaving readable plain text */
+function stripLatex(src: string): string {
+  return src
+    .replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])*(\{[^}]*\})?/g, (_, _opt, arg) => arg ? arg.slice(1, -1) : ' ')
+    .replace(/[{}]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Extract all text from a PDF ArrayBuffer using pdf.js */
+async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const parts: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    parts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '));
+  }
+  return parts.join('\n');
+}
+
+const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const;
+type CefrLevel = typeof CEFR_LEVELS[number] | 'None';
+
+/** Detect the CEFR level for a given language name from raw CV text */
+function detectLangLevel(raw: string, langNames: string[]): CefrLevel {
+  for (const name of langNames) {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const patterns = [
+      new RegExp(`${escapedName}[:\\s(]+([A-C][12])`, 'i'),
+      new RegExp(`([A-C][12])[^.\\n]{0,30}${escapedName}`, 'i'),
+    ];
+    for (const pat of patterns) {
+      const m = raw.match(pat);
+      if (m) {
+        const lvl = m[1].toUpperCase() as CefrLevel;
+        if ((CEFR_LEVELS as readonly string[]).includes(lvl)) return lvl;
+      }
+    }
+    // Qualitative: native / fluent / proficient / conversational / basic
+    if (new RegExp(`native\\s+${escapedName}|${escapedName}[:\\s(]+native`, 'i').test(raw)) return 'C2';
+    if (new RegExp(`fluent\\s+(?:in\\s+)?${escapedName}|${escapedName}[:\\s(]+fluent`, 'i').test(raw)) return 'C1';
+    if (new RegExp(`proficient\\s+(?:in\\s+)?${escapedName}|${escapedName}[:\\s(]+proficient`, 'i').test(raw)) return 'B2';
+    if (new RegExp(`conversational\\s+${escapedName}|${escapedName}[:\\s(]+conversational`, 'i').test(raw)) return 'B1';
+    if (new RegExp(`basic\\s+${escapedName}|${escapedName}[:\\s(]+basic`, 'i').test(raw)) return 'A2';
+  }
+  return 'None';
+}
+
 function parseCV(raw: string): Partial<UserProfile> {
   const result: Partial<UserProfile> = {};
 
@@ -61,7 +120,6 @@ function parseCV(raw: string): Partial<UserProfile> {
   if (expMatch) {
     result.workExperience = Math.min(parseInt(expMatch[1]), 40);
   } else {
-    // Estimate from employment date ranges
     const now = new Date().getFullYear();
     const ranges = [...raw.matchAll(/(20\d\d|19\d\d)\s*[-–—]\s*(20\d\d|present|current|now)/gi)];
     let total = 0;
@@ -74,20 +132,38 @@ function parseCV(raw: string): Partial<UserProfile> {
     if (total > 0) result.workExperience = Math.min(Math.round(total), 40);
   }
 
-  // German language level
-  const langPatterns = [
-    /german[:\s(]+([A-C][12])/i,
-    /([A-C][12])[^.\n]{0,30}german/i,
-    /deutsch[:\s(]+([A-C][12])/i,
-    /goethe[^,\n]*([A-C][12])/i,
-    /telc[^,\n]*([A-C][12])/i,
-  ];
-  for (const pat of langPatterns) {
-    const m = raw.match(pat);
-    if (m) {
-      const level = m[1].toUpperCase();
-      if (['A2', 'B1', 'B2', 'C1', 'C2'].includes(level)) { result.languageLevel = level; break; }
+  // Language levels — detect all four tracked languages
+  const langs: Record<string, string[]> = {
+    de: ['german', 'deutsch'],
+    nl: ['dutch', 'nederlands', 'flemish'],
+    fr: ['french', 'français', 'francais'],
+    es: ['spanish', 'español', 'espanol', 'castellano'],
+  };
+  // Also handle Goethe/TELC/DELF/DALF/DELE certificates
+  const certPatterns: Record<string, RegExp> = {
+    de: /(?:goethe|telc|dsh|testdaf)[^,\n]*([A-C][12])/i,
+    fr: /(?:delf|dalf|tcf|tef)[^,\n]*([A-C][12])/i,
+    es: /(?:dele|siele|cervantes)[^,\n]*([A-C][12])/i,
+    nl: /(?:nt2|inburgering)[^,\n]*([A-C][12])/i,
+  };
+  const detectedLevels: Record<string, string> = {};
+  for (const [code, names] of Object.entries(langs)) {
+    // Certificate first
+    const certMatch = raw.match(certPatterns[code]);
+    if (certMatch) {
+      const lvl = certMatch[1].toUpperCase();
+      if ((CEFR_LEVELS as readonly string[]).includes(lvl)) {
+        detectedLevels[code] = lvl;
+        continue;
+      }
     }
+    const lvl = detectLangLevel(raw, names);
+    if (lvl !== 'None') detectedLevels[code] = lvl;
+  }
+  if (Object.keys(detectedLevels).length > 0) {
+    result.languageLevels = detectedLevels;
+    // Back-fill legacy field with German level for DE visa scoring
+    if (detectedLevels.de) result.languageLevel = detectedLevels.de;
   }
 
   // Offers
@@ -110,11 +186,38 @@ const CV_FIELD_LABELS: Partial<Record<keyof UserProfile, string>> = {
   education: 'Education',
   field: 'Field',
   workExperience: 'Work Experience',
-  languageLevel: 'German Level',
+  languageLevels: 'Languages',
   hasJobOffer: 'Job Offer',
   hasUniversityOffer: 'University Offer',
   monthlyIncome: 'Monthly Income',
 };
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Language config per target country ───────────────────────────────────────
+const LANGUAGE_CONFIG: Record<string, { code: string; label: string; hint?: string }[]> = {
+  Germany: [{ code: 'de', label: 'German', hint: 'Required for job-seeker & some work visas' }],
+  Netherlands: [{ code: 'nl', label: 'Dutch', hint: 'Helpful for integration; English widely accepted at work' }],
+  Belgium: [
+    { code: 'nl', label: 'Dutch (Flemish)', hint: 'Required in Flanders & Brussels (Flemish admin)' },
+    { code: 'fr', label: 'French', hint: 'Required in Wallonia & Brussels (French admin)' },
+    { code: 'de', label: 'German', hint: 'Required in the German-speaking community (East Belgium)' },
+  ],
+  Spain: [{ code: 'es', label: 'Spanish', hint: 'Helps integration; not formally required for most visas' }],
+  France: [{ code: 'fr', label: 'French', hint: 'Required for talent passport pathways' }],
+  Portugal: [{ code: 'pt', label: 'Portuguese', hint: 'Helpful for D3/D8 integration' }],
+  Austria: [{ code: 'de', label: 'German', hint: 'Points-based Red-White-Red Card awards language points' }],
+};
+
+const CEFR_OPTIONS = ['None', 'A1 – Beginner', 'A2 – Elementary', 'B1 – Intermediate', 'B2 – Upper Intermediate', 'C1 – Advanced', 'C2 – Mastery'];
+/** Strip the description suffix to store just "B2" etc. */
+function cefrCode(opt: string) { return opt.split(' ')[0]; }
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Target countries offered in the destination dropdown ─────────────────────
+const TARGET_COUNTRIES = [
+  'Germany', 'Netherlands', 'Belgium', 'Spain', 'France',
+  'Portugal', 'Austria', 'Sweden', 'Denmark', 'Any / Unsure',
+];
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STEPS = [
@@ -292,6 +395,8 @@ export default function EligibilityPage() {
   const [cvText, setCvText] = useState('');
   const [cvDetected, setCvDetected] = useState<Partial<UserProfile> | null>(null);
   const [cvMode, setCvMode] = useState<'paste' | 'upload'>('paste');
+  const [cvUploading, setCvUploading] = useState(false);
+  const [cvFileName, setCvFileName] = useState('');
 
   const handleParseCV = () => {
     if (!cvText.trim()) return;
@@ -300,23 +405,46 @@ export default function EligibilityPage() {
 
   const handleApplyCV = () => {
     if (!cvDetected) return;
-    setProfile(p => ({ ...p, ...cvDetected }));
+    setProfile(p => ({
+      ...p,
+      ...cvDetected,
+      // Merge languageLevels rather than replace so manually-set values survive
+      languageLevels: { ...p.languageLevels, ...(cvDetected.languageLevels ?? {}) },
+    }));
     setCvOpen(false);
     setCvDetected(null);
     setCvText('');
+    setCvFileName('');
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      if (typeof evt.target?.result === 'string') {
-        setCvText(evt.target.result);
-        setCvDetected(null);
+    setCvFileName(file.name);
+    setCvDetected(null);
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') {
+      setCvUploading(true);
+      try {
+        const buf = await file.arrayBuffer();
+        const text = await extractPdfText(buf);
+        setCvText(text);
+      } catch {
+        setCvText('');
+        alert('Could not extract text from this PDF. Try copy-pasting the text instead.');
+      } finally {
+        setCvUploading(false);
       }
-    };
-    reader.readAsText(file);
+    } else {
+      // .txt or .tex — read as plain text, then strip LaTeX if needed
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (typeof evt.target?.result === 'string') {
+          setCvText(ext === 'tex' ? stripLatex(evt.target.result) : evt.target.result);
+        }
+      };
+      reader.readAsText(file);
+    }
   };
 
   const runCheck = () => {
@@ -500,13 +628,16 @@ export default function EligibilityPage() {
             ) : (
               <div className="mb-4">
                 <label className="flex flex-col items-center justify-center gap-2 h-24 border-2 border-dashed border-slate-700 hover:border-blue-500/50 rounded-xl cursor-pointer transition-colors bg-slate-800/30 hover:bg-blue-500/5">
-                  <Upload size={18} className="text-slate-400" />
-                  <span className="text-slate-400 text-xs">Click to upload a .txt file</span>
-                  <input type="file" className="hidden" accept=".txt" onChange={handleFileUpload} />
+                  {cvUploading ? (
+                    <><Loader size={18} className="text-blue-400 animate-spin" /><span className="text-blue-400 text-xs">Extracting text from PDF…</span></>
+                  ) : (
+                    <><Upload size={18} className="text-slate-400" /><span className="text-slate-400 text-xs">Click to upload — .pdf, .tex, or .txt</span></>
+                  )}
+                  <input type="file" className="hidden" accept=".pdf,.tex,.txt" onChange={handleFileUpload} disabled={cvUploading} />
                 </label>
-                {cvText && (
+                {cvFileName && !cvUploading && (
                   <p className="text-emerald-400 text-xs mt-2 flex items-center gap-1">
-                    <CheckCircle size={11} /> File loaded — {cvText.length.toLocaleString()} characters
+                    <CheckCircle size={11} /> {cvFileName} loaded — {cvText.length.toLocaleString()} chars extracted
                   </p>
                 )}
               </div>
@@ -521,28 +652,26 @@ export default function EligibilityPage() {
                     : 'No fields detected — try adding more detail to your CV text'}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {(Object.keys(CV_FIELD_LABELS) as (keyof UserProfile)[]).map(key => {
+                  {/* Non-language fields */}
+                  {(Object.keys(CV_FIELD_LABELS) as (keyof UserProfile)[]).filter(k => k !== 'languageLevels').map(key => {
                     const detected = key in cvDetected;
                     const val = cvDetected[key as keyof typeof cvDetected];
                     return (
-                      <span
-                        key={key}
-                        className={clsx(
-                          'text-xs px-2.5 py-1 rounded-full border',
-                          detected
-                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                            : 'bg-slate-700/40 text-slate-500 border-slate-700',
-                        )}
-                      >
+                      <span key={key} className={clsx('text-xs px-2.5 py-1 rounded-full border',
+                        detected ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' : 'bg-slate-700/40 text-slate-500 border-slate-700')}>
                         {detected ? '✓ ' : ''}{CV_FIELD_LABELS[key]}
                         {detected && val !== true && val !== undefined && (
-                          <span className="ml-1 opacity-70">
-                            {key === 'monthlyIncome' ? `€${val}` : key === 'workExperience' ? `${val} yrs` : String(val)}
-                          </span>
+                          <span className="ml-1 opacity-70">{key === 'monthlyIncome' ? `€${val}` : key === 'workExperience' ? `${val} yrs` : String(val)}</span>
                         )}
                       </span>
                     );
                   })}
+                  {/* Language levels */}
+                  {cvDetected.languageLevels && Object.entries(cvDetected.languageLevels).map(([code, lvl]) => (
+                    <span key={code} className="text-xs px-2.5 py-1 rounded-full border bg-emerald-500/10 text-emerald-300 border-emerald-500/30">
+                      ✓ {code.toUpperCase()} <span className="opacity-70">{lvl}</span>
+                    </span>
+                  ))}
                 </div>
               </div>
             )}
@@ -566,7 +695,7 @@ export default function EligibilityPage() {
                 </button>
               )}
               <button
-                onClick={() => { setCvOpen(false); setCvDetected(null); setCvText(''); }}
+                onClick={() => { setCvOpen(false); setCvDetected(null); setCvText(''); setCvFileName(''); }}
                 className="btn-secondary text-sm py-2"
               >
                 Cancel
@@ -608,6 +737,14 @@ export default function EligibilityPage() {
                 </select>
               </div>
               <div>
+                <label className="label">Preferred Destination Country</label>
+                <select className="select" value={profile.targetCountry} onChange={e => update('targetCountry', e.target.value)}>
+                  <option value="">Any / Not decided yet</option>
+                  {TARGET_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <p className="text-slate-500 text-xs mt-1">Helps us tailor the language proficiency question</p>
+              </div>
+              <div>
                 <label className="label">Current Location</label>
                 <select className="select" value={profile.currentLocation} onChange={e => update('currentLocation', e.target.value)}>
                   <option value="">Where are you currently?</option>
@@ -641,36 +778,74 @@ export default function EligibilityPage() {
             </div>
           )}
 
-          {step === 2 && (
-            <div className="space-y-5">
-              <div>
-                <label className="label">Highest Education Level *</label>
-                <select className="select" value={profile.education} onChange={e => update('education', e.target.value)}>
-                  <option value="">Select education level</option>
-                  {EDUCATION_LEVELS.map(e => <option key={e} value={e}>{e}</option>)}
-                </select>
+          {step === 2 && (() => {
+            // Determine which language(s) to ask about based on target country
+            const target = profile.targetCountry;
+            const langCfg = target && LANGUAGE_CONFIG[target] ? LANGUAGE_CONFIG[target] : LANGUAGE_CONFIG['Germany'];
+            const showGenericNote = !target || target === 'Any / Unsure';
+            return (
+              <div className="space-y-5">
+                <div>
+                  <label className="label">Highest Education Level *</label>
+                  <select className="select" value={profile.education} onChange={e => update('education', e.target.value)}>
+                    <option value="">Select education level</option>
+                    {EDUCATION_LEVELS.map(e => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Field of Study / Work *</label>
+                  <select className="select" value={profile.field} onChange={e => update('field', e.target.value)}>
+                    <option value="">Select your field</option>
+                    {RESEARCH_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+
+                {/* Dynamic language fields */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <p className="label mb-0">Language Proficiency</p>
+                    {showGenericNote && <span className="text-slate-500 text-xs">(showing all EU languages)</span>}
+                  </div>
+                  {langCfg.map(({ code, label, hint }) => {
+                    const stored = profile.languageLevels[code] ??
+                      (code === 'de' ? profile.languageLevel : 'None');
+                    const displayVal = CEFR_OPTIONS.find(o => o.startsWith(stored)) ?? 'None';
+                    return (
+                      <div key={code}>
+                        <label className="label text-sm font-normal text-slate-300">{label}</label>
+                        <select
+                          className="select"
+                          value={displayVal}
+                          onChange={e => {
+                            const code_val = cefrCode(e.target.value);
+                            setProfile(p => ({
+                              ...p,
+                              languageLevels: { ...p.languageLevels, [code]: code_val },
+                              // keep legacy field in sync for DE
+                              ...(code === 'de' ? { languageLevel: code_val } : {}),
+                            }));
+                          }}
+                        >
+                          {CEFR_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                        {hint && <p className="text-slate-500 text-xs mt-1">{hint}</p>}
+                      </div>
+                    );
+                  })}
+                  {showGenericNote && (
+                    // Show all four languages when no destination chosen
+                    Object.entries(LANGUAGE_CONFIG).filter(([c]) => !langCfg.find(l => l.code === Object.values(LANGUAGE_CONFIG[c]).map(x=>x.code).join())).length === 0
+                      ? null
+                      : (
+                        <p className="text-slate-500 text-xs">
+                          Select a destination country in Step 1 to see only the relevant language field(s).
+                        </p>
+                      )
+                  )}
+                </div>
               </div>
-              <div>
-                <label className="label">Field of Study / Work *</label>
-                <select className="select" value={profile.field} onChange={e => update('field', e.target.value)}>
-                  <option value="">Select your field</option>
-                  {RESEARCH_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">German Language Level</label>
-                <select className="select" value={profile.languageLevel} onChange={e => update('languageLevel', e.target.value)}>
-                  <option value="None">None / A1</option>
-                  <option value="A2">A2 - Basic</option>
-                  <option value="B1">B1 - Intermediate</option>
-                  <option value="B2">B2 - Upper Intermediate</option>
-                  <option value="C1">C1 - Advanced</option>
-                  <option value="C2">C2 - Mastery</option>
-                </select>
-                <p className="text-slate-500 text-xs mt-1">Relevant for Germany pathways</p>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {step === 3 && (
             <div className="space-y-5">

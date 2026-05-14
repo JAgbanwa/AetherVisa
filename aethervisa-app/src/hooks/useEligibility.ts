@@ -185,6 +185,16 @@ function scoreVisa(visa: VisaOption, profile: UserProfile): EligibilityResult {
         score += 5;
         strengths.push('Your field of study is in high demand at research institutions');
       }
+      // Spanish language scoring
+      const esLevelR = profile.languageLevels?.es ?? 'None';
+      if (['B2', 'C1', 'C2'].includes(esLevelR)) {
+        score += 8;
+        strengths.push('Spanish proficiency aids daily integration and departmental communication');
+      } else if (['B1'].includes(esLevelR)) {
+        score += 4;
+      } else {
+        missing.push('Spanish language skills (not required for researcher visa but aids integration — consider A2 minimum)');
+      }
       break;
     }
 
@@ -209,6 +219,22 @@ function scoreVisa(visa: VisaOption, profile: UserProfile): EligibilityResult {
         score += 5;
         strengths.push('Your field of study is in high demand at research institutions');
       }
+      // Belgium: Dutch (primary), French (secondary), German (tertiary)
+      const nlLevelBE = profile.languageLevels?.nl ?? 'None';
+      const frLevelBE = profile.languageLevels?.fr ?? 'None';
+      const deLevelBE = profile.languageLevels?.de ?? profile.languageLevel ?? 'None';
+      if (['B1', 'B2', 'C1', 'C2'].includes(nlLevelBE)) {
+        score += 8;
+        strengths.push('Dutch proficiency is advantageous for Flemish institutions (majority of Belgian research output)');
+      } else if (['B1', 'B2', 'C1', 'C2'].includes(frLevelBE)) {
+        score += 6;
+        strengths.push('French proficiency opens access to Walloon and Brussels-based institutions');
+      } else if (['B1', 'B2', 'C1', 'C2'].includes(deLevelBE)) {
+        score += 3;
+        strengths.push('German proficiency covers the small German-speaking community (Ostbelgien)');
+      } else {
+        missing.push('Language proficiency recommended: Dutch (nl) for Flanders, French (fr) for Wallonia/Brussels, German (de) for East Belgium');
+      }
       break;
     }
 
@@ -232,6 +258,16 @@ function scoreVisa(visa: VisaOption, profile: UserProfile): EligibilityResult {
       } else {
         score -= 10;
         missing.push('Financial proof of at least €600/month (Directive 2016/801, Art. 7(1)(e))');
+      }
+      // Spanish language scoring
+      const esLevelS = profile.languageLevels?.es ?? 'None';
+      if (['B1', 'B2', 'C1', 'C2'].includes(esLevelS)) {
+        score += 10;
+        strengths.push('Spanish proficiency strengthens integration and academic performance prospects');
+      } else if (esLevelS === 'A2') {
+        score += 4;
+      } else {
+        missing.push('Spanish language skills recommended — institutions often require B2 for Spanish-taught programmes (DELE certificate preferred)');
       }
       break;
     }
@@ -261,6 +297,12 @@ function scoreVisa(visa: VisaOption, profile: UserProfile): EligibilityResult {
       } else {
         score -= 20;
         missing.push('Monthly salary of at least €5,331 gross (or €3,909 if under 30) — Vreemdelingenbesluit 2000, Art. 3.30a');
+      }
+      // Dutch language: not required but useful for integration
+      const nlLevelHSM = profile.languageLevels?.nl ?? 'None';
+      if (['B1', 'B2', 'C1', 'C2'].includes(nlLevelHSM)) {
+        score += 5;
+        strengths.push('Dutch proficiency will ease the mandatory civic integration (inburgering) requirement');
       }
       break;
     }
@@ -295,7 +337,8 @@ function scoreVisa(visa: VisaOption, profile: UserProfile): EligibilityResult {
         score += 10;
         strengths.push('Work experience strengthens job-seeker applications');
       }
-      if (profile.languageLevel === 'B1' || profile.languageLevel === 'B2' || profile.languageLevel === 'C1' || profile.languageLevel === 'C2') {
+      const deLevelJS = profile.languageLevels?.de ?? profile.languageLevel ?? 'None';
+      if (['B1', 'B2', 'C1', 'C2'].includes(deLevelJS)) {
         score += 15;
         strengths.push('German language skills significantly improve job prospects');
       } else {
