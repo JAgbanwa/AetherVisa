@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Globe, Menu, X, ChevronDown, Sparkles } from 'lucide-react';
+import { LawUpdatesBadge } from './LawUpdatesBanner';
 import clsx from 'clsx';
 
 const navItems = [
@@ -19,6 +20,7 @@ const navItems = [
       { label: 'Document Generator', path: '/documents', desc: 'Create application documents' },
       { label: 'University Outreach', path: '/outreach', desc: 'Connect with supervisors' },
       { label: 'Community', path: '/community', desc: 'Learn from others\' experiences' },
+      { label: 'Law Updates', path: '/law-updates', desc: 'Track immigration law changes' },
     ],
   },
   { label: 'Pricing', path: '/pricing' },
@@ -55,6 +57,7 @@ export default function Navbar() {
                 >
                   <button className="flex items-center gap-1 px-3 py-2 rounded-lg nav-link hover:bg-slate-800 text-sm font-medium">
                     {item.label}
+                    {item.label === 'Resources' && <LawUpdatesBadge />}
                     <ChevronDown size={14} className={clsx('transition-transform', activeDropdown === item.label && 'rotate-180')} />
                   </button>
                   {activeDropdown === item.label && (

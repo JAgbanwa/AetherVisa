@@ -101,3 +101,42 @@ export interface RedFlag {
   consequences: string[];
   howToAvoid: string;
 }
+
+// ── Law change tracking ───────────────────────────────────────────────────────
+
+export type LawChangeSeverity = 'critical' | 'important' | 'minor';
+
+export interface LawUpdate {
+  id: string;
+  /** ISO date string when the change takes / took effect */
+  effectiveDate: string;
+  /** ISO date string when AetherVisa last verified this entry */
+  verifiedAt: string;
+  severity: LawChangeSeverity;
+  country: string;
+  flag: string;
+  /** IDs of affected VisaOptions, or [] for cross-cutting EU changes */
+  affectedVisaIds: string[];
+  title: string;
+  summary: string;
+  /** What changed (before → after) */
+  what: { before: string; after: string } | null;
+  /** Plain-English action the applicant should take */
+  actionRequired: string | null;
+  sourceLabel: string;
+  sourceUrl: string;
+}
+
+/** A versioned threshold value — salary, fee, income floor, etc. */
+export interface VersionedThreshold {
+  id: string;
+  label: string;
+  country: string;
+  affectedVisaIds: string[];
+  value: number;
+  unit: string;
+  effectiveDate: string;
+  verifiedAt: string;
+  sourceLabel: string;
+  sourceUrl: string;
+}

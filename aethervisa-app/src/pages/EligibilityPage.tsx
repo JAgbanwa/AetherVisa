@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import type { UserProfile, EligibilityResult } from '../types';
 import { COUNTRIES, EDUCATION_LEVELS, RESEARCH_FIELDS } from '../data';
 import { calculateEligibility } from '../hooks/useEligibility';
+import { getUpdatesForVisa } from '../data/lawUpdates';
+import { LawUpdatesPill } from '../components/LawUpdatesBanner';
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
   Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink
@@ -159,6 +161,13 @@ function ResultCard({ result, rank }: { result: EligibilityResult; rank: number 
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {getUpdatesForVisa(visa.id).length > 0 && (
+            <div className="flex items-center gap-2 py-1">
+              <span className="text-slate-500 text-xs">Law changes:</span>
+              <LawUpdatesPill visaId={visa.id} />
             </div>
           )}
 

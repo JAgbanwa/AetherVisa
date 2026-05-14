@@ -11,6 +11,8 @@ import OutreachPage from './pages/OutreachPage';
 import RisksPage from './pages/RisksPage';
 import CommunityPage from './pages/CommunityPage';
 import PricingPage from './pages/PricingPage';
+import LawUpdatesPage from './pages/LawUpdatesPage';
+import LawUpdatesBanner from './components/LawUpdatesBanner';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -24,6 +26,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
       <Navbar />
+      <LawUpdatesBanner />
       <main className="flex-1">{children}</main>
       <Footer />
     </div>
@@ -45,6 +48,7 @@ export default function App() {
           <Route path="/risks" element={<RisksPage />} />
           <Route path="/community" element={<CommunityPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/law-updates" element={<LawUpdatesPage />} />
           <Route path="*" element={<HomePage />} />
         </Routes>
       </Layout>
