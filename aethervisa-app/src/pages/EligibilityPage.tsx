@@ -5,7 +5,7 @@ import { COUNTRIES, EDUCATION_LEVELS, RESEARCH_FIELDS } from '../data';
 import { calculateEligibility } from '../hooks/useEligibility';
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
-  Sparkles, ChevronRight, TrendingUp, Shield, Loader
+  Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -60,7 +60,7 @@ function ProbabilityBar({ value, label }: { value: number; label: string }) {
 
 function ResultCard({ result, rank }: { result: EligibilityResult; rank: number }) {
   const [expanded, setExpanded] = useState(false);
-  const { visa, probability, recommendation, missingRequirements, strengths } = result;
+  const { visa, probability, recommendation, missingRequirements, strengths, legalBasis } = result;
 
   const probColor =
     probability >= 70 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' :
@@ -133,6 +133,35 @@ function ResultCard({ result, rank }: { result: EligibilityResult; rank: number 
               </div>
             ))}
           </div>
+
+          {legalBasis.length > 0 && (
+            <div className="bg-blue-950/40 border border-blue-700/30 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Scale size={14} className="text-blue-400 flex-shrink-0" />
+                <p className="text-blue-300 text-xs font-semibold uppercase tracking-wider">Legal Basis &amp; EU Law Pathways</p>
+              </div>
+              <div className="space-y-3">
+                {legalBasis.map((ref, i) => (
+                  <div key={i} className="border-l-2 border-blue-600/40 pl-3">
+                    <div className="flex items-start justify-between gap-2 mb-0.5">
+                      <span className="text-blue-300 text-xs font-semibold leading-snug">{ref.label}</span>
+                      <a
+                        href={ref.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 hover:text-blue-300 flex-shrink-0 transition-colors"
+                        aria-label={`Open ${ref.label}`}
+                      >
+                        <ExternalLink size={11} />
+                      </a>
+                    </div>
+                    <p className="text-slate-400 text-xs leading-relaxed">{ref.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-3 pt-2">
             <Link to="/comparison" className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
               Full comparison <ArrowRight size={13} />
@@ -213,7 +242,7 @@ export default function EligibilityPage() {
           <div className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 mb-8">
             <AlertTriangle size={15} className="text-amber-400 mt-0.5 flex-shrink-0" />
             <p className="text-slate-400 text-xs leading-relaxed">
-              Probability estimates are indicative only and based on general criteria. Immigration outcomes depend on many factors. Always consult a qualified immigration lawyer for legal advice.
+              Probability estimates are indicative only and based on general criteria. Legal references are provided for educational purposes — they do not constitute legal advice. Immigration outcomes depend on many factors. Always consult a qualified immigration lawyer.
             </p>
           </div>
 

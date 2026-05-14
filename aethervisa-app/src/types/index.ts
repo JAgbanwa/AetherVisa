@@ -30,12 +30,19 @@ export interface UserProfile {
   familySize: number;
 }
 
+export interface LegalReference {
+  label: string;       // Short display name, e.g. "Directive 2016/801, Art. 28"
+  description: string; // Plain-English explanation of what this clause does for the applicant
+  url: string;         // Canonical EUR-Lex or national law URL
+}
+
 export interface EligibilityResult {
   visa: VisaOption;
   probability: number;
   recommendation: string;
   missingRequirements: string[];
   strengths: string[];
+  legalBasis: LegalReference[];  // EU / national law citations relevant to this result
 }
 
 export interface ChecklistItem {
