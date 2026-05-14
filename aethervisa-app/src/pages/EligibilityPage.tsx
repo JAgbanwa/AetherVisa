@@ -7,7 +7,8 @@ import { getUpdatesForVisa } from '../data/lawUpdates';
 import { LawUpdatesPill } from '../components/LawUpdatesBanner';
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
-  Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink
+  Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink,
+  FileText, Upload
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -23,6 +24,98 @@ const defaultProfile: UserProfile = {
   languageLevel: 'None',
   familySize: 1,
 };
+
+// ── CV auto-fill ─────────────────────────────────────────────────────────────
+function parseCV(raw: string): Partial<UserProfile> {
+  const result: Partial<UserProfile> = {};
+
+  // Education level (most specific first)
+  if (/postdoctoral|post-doctoral|post\s+doc/i.test(raw)) result.education = 'Postdoctoral';
+  else if (/ph\.?d|doctorate|doctoral thesis/i.test(raw)) result.education = 'PhD / Doctorate';
+  else if (/master'?s?|\bmsc\b|m\.sc\.?|\bmba\b|m\.eng|\bmres\b|m\.a\.|magister/i.test(raw)) result.education = "Master's Degree";
+  else if (/bachelor'?s?|\bbsc\b|b\.sc\.?|b\.eng|b\.a\.|undergraduate degree/i.test(raw)) result.education = "Bachelor's Degree";
+  else if (/high school|secondary school|a[- ]?levels?|\bgcse\b|abitur|baccalaur/i.test(raw)) result.education = 'High School';
+  else if (/\bcertif|\bdiploma\b|\bhnd\b|associate degree/i.test(raw)) result.education = 'Professional Certification';
+
+  // Field (most specific first)
+  if (/machine learning|artificial intelligence|deep learning|neural network/i.test(raw)) result.field = 'Computer Science / AI / Machine Learning';
+  else if (/data science|data analyst/i.test(raw)) result.field = 'Data Science / Statistics';
+  else if (/computer science|software engineer|software developer|web developer|full.?stack|\bdevops\b|back.?end|front.?end/i.test(raw)) result.field = 'Computer Science / AI / Machine Learning';
+  else if (/biomedical|life science|molecular biology|genetics|biochemistry|neuroscience/i.test(raw)) result.field = 'Biomedical / Life Sciences';
+  else if (/mechanical engineer|civil engineer|electrical engineer|structural engineer/i.test(raw)) result.field = 'Engineering (Mechanical/Civil/Electrical)';
+  else if (/\bphysics\b|astrophysics|quantum/i.test(raw)) result.field = 'Physics';
+  else if (/\bchemistry\b|materials science|nanotechnol/i.test(raw)) result.field = 'Chemistry';
+  else if (/\bmathematics\b|pure math|applied math|actuarial|statistician/i.test(raw)) result.field = 'Mathematics';
+  else if (/\bmedicine\b|physician|medical doctor|public health|clinical medicine/i.test(raw)) result.field = 'Medicine / Public Health';
+  else if (/economics|investment banking|financial analyst/i.test(raw)) result.field = 'Economics / Finance';
+  else if (/sociology|psychology|anthropology|political science/i.test(raw)) result.field = 'Social Sciences';
+  else if (/\bhistory\b|philosophy|literature|linguistics|humanities/i.test(raw)) result.field = 'Humanities / Arts';
+  else if (/environmental science|climate science|\becology\b|sustainability/i.test(raw)) result.field = 'Environmental / Climate Science';
+  else if (/\blaw\b|legal practitioner|attorney|barrister|solicitor|jurisprudence/i.test(raw)) result.field = 'Law';
+  else if (/\barchitecture\b|urban planning/i.test(raw)) result.field = 'Architecture';
+
+  // Work experience — explicit statement first
+  const expMatch =
+    raw.match(/(\d{1,2})\+?\s*years?\s+(?:of\s+)?(?:work\s+|professional\s+|industry\s+|relevant\s+)?experience/i) ??
+    raw.match(/experience[:\s]+(\d{1,2})\+?\s*years?/i);
+  if (expMatch) {
+    result.workExperience = Math.min(parseInt(expMatch[1]), 40);
+  } else {
+    // Estimate from employment date ranges
+    const now = new Date().getFullYear();
+    const ranges = [...raw.matchAll(/(20\d\d|19\d\d)\s*[-–—]\s*(20\d\d|present|current|now)/gi)];
+    let total = 0;
+    for (const r of ranges) {
+      const from = parseInt(r[1]);
+      const toStr = r[2].toLowerCase();
+      const to = /present|current|now/.test(toStr) ? now : parseInt(r[2]);
+      if (!isNaN(from) && !isNaN(to) && to > from && from >= 1970 && to <= now + 1) total += to - from;
+    }
+    if (total > 0) result.workExperience = Math.min(Math.round(total), 40);
+  }
+
+  // German language level
+  const langPatterns = [
+    /german[:\s(]+([A-C][12])/i,
+    /([A-C][12])[^.\n]{0,30}german/i,
+    /deutsch[:\s(]+([A-C][12])/i,
+    /goethe[^,\n]*([A-C][12])/i,
+    /telc[^,\n]*([A-C][12])/i,
+  ];
+  for (const pat of langPatterns) {
+    const m = raw.match(pat);
+    if (m) {
+      const level = m[1].toUpperCase();
+      if (['A2', 'B1', 'B2', 'C1', 'C2'].includes(level)) { result.languageLevel = level; break; }
+    }
+  }
+
+  // Offers
+  if (/job offer|offer letter|employment contract|employment offer/i.test(raw)) result.hasJobOffer = true;
+  if (/admission letter|acceptance letter|university offer|research position|phd position|phd studentship|research fellowship|research contract/i.test(raw)) result.hasUniversityOffer = true;
+
+  // Monthly income
+  const salaryMatch =
+    raw.match(/(?:salary|income|compensation)[:\s]*(?:€|EUR)?\s*([\d,]+)\s*(?:€|EUR|per month|\/month|\bpm\b|p\.m\.)/i) ??
+    raw.match(/(?:€|EUR)\s*([\d,]+)\s*(?:per month|\/month|\bpm\b|p\.m\.)/i);
+  if (salaryMatch) {
+    const amount = parseInt(salaryMatch[1].replace(/,/g, ''));
+    if (amount >= 100 && amount <= 50000) result.monthlyIncome = amount;
+  }
+
+  return result;
+}
+
+const CV_FIELD_LABELS: Partial<Record<keyof UserProfile, string>> = {
+  education: 'Education',
+  field: 'Field',
+  workExperience: 'Work Experience',
+  languageLevel: 'German Level',
+  hasJobOffer: 'Job Offer',
+  hasUniversityOffer: 'University Offer',
+  monthlyIncome: 'Monthly Income',
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
 const STEPS = [
   { id: 1, title: 'Background', desc: 'Where are you from?' },
@@ -195,6 +288,37 @@ export default function EligibilityPage() {
     setProfile((p) => ({ ...p, [key]: value }));
   };
 
+  const [cvOpen, setCvOpen] = useState(false);
+  const [cvText, setCvText] = useState('');
+  const [cvDetected, setCvDetected] = useState<Partial<UserProfile> | null>(null);
+  const [cvMode, setCvMode] = useState<'paste' | 'upload'>('paste');
+
+  const handleParseCV = () => {
+    if (!cvText.trim()) return;
+    setCvDetected(parseCV(cvText));
+  };
+
+  const handleApplyCV = () => {
+    if (!cvDetected) return;
+    setProfile(p => ({ ...p, ...cvDetected }));
+    setCvOpen(false);
+    setCvDetected(null);
+    setCvText('');
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      if (typeof evt.target?.result === 'string') {
+        setCvText(evt.target.result);
+        setCvDetected(null);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const runCheck = () => {
     setLoading(true);
     // Simulate async calculation
@@ -322,6 +446,135 @@ export default function EligibilityPage() {
           <p className="text-slate-400">Answer a few questions to see your best EU visa pathways with success probability estimates.</p>
         </div>
 
+        {/* CV Auto-fill */}
+        {!cvOpen ? (
+          <div className="flex justify-center mb-8">
+            <button
+              onClick={() => setCvOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-slate-600 text-slate-400 hover:text-white hover:border-blue-500/50 hover:bg-blue-500/5 transition-all text-sm"
+            >
+              <FileText size={14} /> Auto-fill from your CV
+            </button>
+          </div>
+        ) : (
+          <div className="card mb-8 border-blue-500/20 bg-blue-950/10">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <FileText size={15} className="text-blue-400" />
+                <h3 className="text-white font-semibold text-sm">Auto-fill from CV</h3>
+              </div>
+              <button
+                onClick={() => { setCvOpen(false); setCvDetected(null); setCvText(''); }}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <XCircle size={15} />
+              </button>
+            </div>
+            <p className="text-slate-400 text-xs mb-4 leading-relaxed">
+              Paste or upload your CV and we'll detect your education, field, experience, and language level to pre-fill the form. You can review and adjust everything before running the check.
+            </p>
+
+            {/* Mode tabs */}
+            <div className="flex gap-1 mb-4 bg-slate-800/60 p-1 rounded-lg w-fit">
+              {(['paste', 'upload'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setCvMode(m)}
+                  className={clsx(
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                    cvMode === m ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white',
+                  )}
+                >
+                  {m === 'paste' ? '📋 Paste text' : '📁 Upload .txt'}
+                </button>
+              ))}
+            </div>
+
+            {cvMode === 'paste' ? (
+              <textarea
+                className="input w-full h-40 text-xs font-mono resize-none mb-4"
+                placeholder="Paste your CV / résumé text here…"
+                value={cvText}
+                onChange={e => { setCvText(e.target.value); setCvDetected(null); }}
+              />
+            ) : (
+              <div className="mb-4">
+                <label className="flex flex-col items-center justify-center gap-2 h-24 border-2 border-dashed border-slate-700 hover:border-blue-500/50 rounded-xl cursor-pointer transition-colors bg-slate-800/30 hover:bg-blue-500/5">
+                  <Upload size={18} className="text-slate-400" />
+                  <span className="text-slate-400 text-xs">Click to upload a .txt file</span>
+                  <input type="file" className="hidden" accept=".txt" onChange={handleFileUpload} />
+                </label>
+                {cvText && (
+                  <p className="text-emerald-400 text-xs mt-2 flex items-center gap-1">
+                    <CheckCircle size={11} /> File loaded — {cvText.length.toLocaleString()} characters
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Detection results */}
+            {cvDetected && (
+              <div className="bg-slate-800/40 rounded-xl p-4 mb-4">
+                <p className="text-white text-xs font-semibold mb-3">
+                  {Object.keys(cvDetected).length > 0
+                    ? `✓ Detected ${Object.keys(cvDetected).length} field${Object.keys(cvDetected).length > 1 ? 's' : ''}`
+                    : 'No fields detected — try adding more detail to your CV text'}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(CV_FIELD_LABELS) as (keyof UserProfile)[]).map(key => {
+                    const detected = key in cvDetected;
+                    const val = cvDetected[key as keyof typeof cvDetected];
+                    return (
+                      <span
+                        key={key}
+                        className={clsx(
+                          'text-xs px-2.5 py-1 rounded-full border',
+                          detected
+                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                            : 'bg-slate-700/40 text-slate-500 border-slate-700',
+                        )}
+                      >
+                        {detected ? '✓ ' : ''}{CV_FIELD_LABELS[key]}
+                        {detected && val !== true && val !== undefined && (
+                          <span className="ml-1 opacity-70">
+                            {key === 'monthlyIncome' ? `€${val}` : key === 'workExperience' ? `${val} yrs` : String(val)}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3">
+              {!cvDetected ? (
+                <button
+                  onClick={handleParseCV}
+                  disabled={!cvText.trim()}
+                  className="btn-primary text-sm py-2 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Sparkles size={14} /> Parse CV
+                </button>
+              ) : Object.keys(cvDetected).length > 0 ? (
+                <button onClick={handleApplyCV} className="btn-primary text-sm py-2 flex items-center gap-2">
+                  <CheckCircle size={14} /> Apply to form ({Object.keys(cvDetected).length} field{Object.keys(cvDetected).length > 1 ? 's' : ''})
+                </button>
+              ) : (
+                <button onClick={handleParseCV} className="btn-secondary text-sm py-2 flex items-center gap-2">
+                  <Sparkles size={14} /> Try again
+                </button>
+              )}
+              <button
+                onClick={() => { setCvOpen(false); setCvDetected(null); setCvText(''); }}
+                className="btn-secondary text-sm py-2"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Progress */}
         <div className="flex items-center gap-2 mb-10">
           {STEPS.map((s, i) => (
@@ -429,8 +682,8 @@ export default function EligibilityPage() {
                   min={0}
                   max={40}
                   placeholder="0"
-                  value={profile.workExperience || ''}
-                  onChange={e => update('workExperience', parseInt(e.target.value) || 0)}
+                  value={profile.workExperience ?? ''}
+                  onChange={e => update('workExperience', e.target.value === '' ? 0 : parseInt(e.target.value))}
                 />
               </div>
               <div>
@@ -440,8 +693,8 @@ export default function EligibilityPage() {
                   className="input"
                   min={0}
                   placeholder="e.g. 2000"
-                  value={profile.monthlyIncome || ''}
-                  onChange={e => update('monthlyIncome', parseInt(e.target.value) || 0)}
+                  value={profile.monthlyIncome ?? ''}
+                  onChange={e => update('monthlyIncome', e.target.value === '' ? 0 : parseInt(e.target.value))}
                 />
                 <p className="text-slate-500 text-xs mt-1">Include salary, savings you can show, or family support</p>
               </div>
