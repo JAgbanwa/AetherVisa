@@ -6,6 +6,7 @@ import { calculateEligibility } from '../hooks/useEligibility';
 import { getUpdatesForVisa } from '../data/lawUpdates';
 import { LawUpdatesPill } from '../components/LawUpdatesBanner';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
   Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink,
@@ -13,11 +14,8 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 
-// Configure pdf.js worker (uses bundled legacy build to avoid CDN dependency)
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
+// Configure pdf.js worker — ?url import lets Vite resolve the hashed asset path
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 const defaultProfile: UserProfile = {
   nationality: '',
@@ -47,12 +45,19 @@ function stripLatex(src: string): string {
 
 /** Extract all text from a PDF ArrayBuffer using pdf.js */
 async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  // Pass as Uint8Array — more reliable than raw ArrayBuffer across pdf.js versions
+  const data = new Uint8Array(buffer);
+  const loadingTask = pdfjsLib.getDocument({ data });
+  const pdf = await loadingTask.promise;
   const parts: string[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    parts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '));
+    parts.push(
+      content.items
+        .map((item) => ('str' in item ? (item as { str: string }).str : ''))
+        .join(' ')
+    );
   }
   return parts.join('\n');
 }
@@ -428,10 +433,17 @@ export default function EligibilityPage() {
       try {
         const buf = await file.arrayBuffer();
         const text = await extractPdfText(buf);
-        setCvText(text);
-      } catch {
+        if (!text.trim()) {
+          // PDF had no extractable text (e.g. scanned image)
+          alert('This PDF appears to be a scanned image with no selectable text. Please export your CV as a text-based PDF or copy-paste the content instead.');
+          setCvText('');
+        } else {
+          setCvText(text);
+        }
+      } catch (err) {
+        console.error('PDF extraction failed:', err);
         setCvText('');
-        alert('Could not extract text from this PDF. Try copy-pasting the text instead.');
+        alert('Could not read this PDF. Make sure it is a standard text-based PDF (not a scanned image). Error: ' + (err instanceof Error ? err.message : String(err)));
       } finally {
         setCvUploading(false);
       }
