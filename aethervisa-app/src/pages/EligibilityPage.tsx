@@ -6,7 +6,9 @@ import { calculateEligibility } from '../hooks/useEligibility';
 import { getUpdatesForVisa } from '../data/lawUpdates';
 import { LawUpdatesPill } from '../components/LawUpdatesBanner';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// ?worker tells Vite to bundle the worker as a module Worker (type:"module")
+// so .mjs ES modules load correctly — plain workerSrc string fails for .mjs files
+import PdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
   Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink,
@@ -14,8 +16,8 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 
-// Configure pdf.js worker — ?url import lets Vite resolve the hashed asset path
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
+// Create worker instance once — Vite handles { type: 'module' } automatically
+pdfjsLib.GlobalWorkerOptions.workerPort = new PdfjsWorker() as Worker;
 
 const defaultProfile: UserProfile = {
   nationality: '',
