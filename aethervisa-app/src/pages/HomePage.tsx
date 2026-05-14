@@ -1,9 +1,337 @@
 import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import {
   ArrowRight, CheckCircle, Sparkles, Shield, DollarSign,
   Globe, Users, BookOpen, TrendingUp, Star, AlertTriangle,
-  FileText, Search, ChevronRight, Zap
+  FileText, Search, ChevronRight, Zap, Send, ThumbsUp
 } from 'lucide-react';
+import clsx from 'clsx';
+
+interface Review {
+  id: string;
+  author: string;
+  initials: string;
+  role: string;
+  rating: number;
+  text: string;
+  feature: string;
+  date: string;
+  helpful: number;
+  helpedBy: string[];
+}
+
+const SEED_REVIEWS: Review[] = [
+  {
+    id: 'seed-1',
+    author: 'Amara K.',
+    initials: 'AK',
+    role: 'PhD Candidate · Nigeria → Spain',
+    rating: 5,
+    text: 'The eligibility checker saved me from applying for the wrong visa. I would have wasted months and hundreds of euros without it.',
+    feature: 'Eligibility Checker',
+    date: '2 weeks ago',
+    helpful: 18,
+    helpedBy: [],
+  },
+  {
+    id: 'seed-2',
+    author: 'Carlos M.',
+    initials: 'CM',
+    role: 'Researcher · Venezuela → Spain',
+    rating: 5,
+    text: 'The document generator gave me a hosting agreement request template that actually worked. Got my supervisor at UAB to sign in two weeks.',
+    feature: 'Document Generator',
+    date: '1 month ago',
+    helpful: 24,
+    helpedBy: [],
+  },
+  {
+    id: 'seed-3',
+    author: 'Priya S.',
+    initials: 'PS',
+    role: 'Software Engineer · India → Netherlands',
+    rating: 4,
+    text: 'Finally a tool that explains EU immigration in plain language. The risk analyzer made me realize I was about to make a critical mistake.',
+    feature: 'Risk Analyzer',
+    date: '3 weeks ago',
+    helpful: 11,
+    helpedBy: [],
+  },
+];
+
+const FEATURES = ['Eligibility Checker', 'Visa Comparison', 'Document Generator', 'Cost Estimator', 'Outreach Tool', 'Risk Analyzer', 'General'];
+
+function StarPicker({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const [hover, setHover] = useState(0);
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map(n => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(n)}
+          onMouseEnter={() => setHover(n)}
+          onMouseLeave={() => setHover(0)}
+          className="transition-transform hover:scale-110"
+          aria-label={`${n} star`}
+        >
+          <Star
+            size={24}
+            className={clsx(
+              'transition-colors',
+              (hover || value) >= n ? 'text-amber-400 fill-amber-400' : 'text-slate-600'
+            )}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const STORAGE_KEY = 'aethervisa_reviews';
+
+function loadReviews(): Review[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? (JSON.parse(stored) as Review[]) : SEED_REVIEWS;
+  } catch {
+    return SEED_REVIEWS;
+  }
+}
+
+function saveReviews(reviews: Review[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(reviews));
+  } catch {
+    // storage unavailable — silent fail
+  }
+}
+
+function RatingsSection() {
+  const [reviews, setReviews] = useState<Review[]>(loadReviews);
+  const [showForm, setShowForm] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [text, setText] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+  const [feature, setFeature] = useState('General');
+  const [userId] = useState(() => Math.random().toString(36).slice(2));
+
+  useEffect(() => {
+    saveReviews(reviews);
+  }, [reviews]);
+
+  const avgRating = reviews.length
+    ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length
+    : 0;
+
+  const dist = [5, 4, 3, 2, 1].map(n => ({
+    stars: n,
+    count: reviews.filter(r => r.rating === n).length,
+    pct: reviews.length ? Math.round((reviews.filter(r => r.rating === n).length / reviews.length) * 100) : 0,
+  }));
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rating || !text.trim()) return;
+    const initials = name.trim()
+      ? name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+      : 'AN';
+    const newReview: Review = {
+      id: `user-${Date.now()}`,
+      author: name.trim() || 'Anonymous',
+      initials,
+      role: role.trim() || 'AetherVisa user',
+      rating,
+      text: text.trim(),
+      feature,
+      date: 'Just now',
+      helpful: 0,
+      helpedBy: [],
+    };
+    setReviews(prev => [newReview, ...prev]);
+    setSubmitted(true);
+    setShowForm(false);
+    setRating(0);
+    setText('');
+    setName('');
+    setRole('');
+    setFeature('General');
+  };
+
+  const toggleHelpful = (id: string) => {
+    setReviews(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const alreadyMarked = r.helpedBy.includes(userId);
+      return {
+        ...r,
+        helpful: alreadyMarked ? r.helpful - 1 : r.helpful + 1,
+        helpedBy: alreadyMarked ? r.helpedBy.filter(u => u !== userId) : [...r.helpedBy, userId],
+      };
+    }));
+  };
+
+  return (
+    <section className="py-24">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="section-header">
+          <h2 className="text-4xl font-bold text-white mb-4">Rate your experience</h2>
+          <p className="text-slate-400 text-lg">Honest reviews from people using AetherVisa to navigate their journey.</p>
+        </div>
+
+        {/* Aggregate + form trigger */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+          {/* Score card */}
+          <div className="card flex flex-col items-center justify-center py-8 text-center">
+            <span className="text-7xl font-bold text-white mb-2">{avgRating.toFixed(1)}</span>
+            <div className="flex gap-1 mb-3">
+              {[1,2,3,4,5].map(n => (
+                <Star key={n} size={18} className={clsx(avgRating >= n ? 'text-amber-400 fill-amber-400' : avgRating >= n - 0.5 ? 'text-amber-400 fill-amber-400/50' : 'text-slate-600')} />
+              ))}
+            </div>
+            <p className="text-slate-400 text-sm">{reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}</p>
+          </div>
+
+          {/* Distribution bars */}
+          <div className="card flex flex-col justify-center gap-2.5 py-6">
+            {dist.map(d => (
+              <div key={d.stars} className="flex items-center gap-2.5">
+                <span className="text-slate-400 text-xs w-4 text-right flex-shrink-0">{d.stars}</span>
+                <Star size={11} className="text-amber-400 fill-amber-400 flex-shrink-0" />
+                <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-400 rounded-full transition-all duration-500"
+                    style={{ width: `${d.pct}%` }}
+                  />
+                </div>
+                <span className="text-slate-500 text-xs w-8 flex-shrink-0">{d.count}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* CTA */}
+          <div className="card flex flex-col items-center justify-center text-center gap-4 py-8">
+            {submitted ? (
+              <>
+                <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                  <CheckCircle size={28} className="text-emerald-400" />
+                </div>
+                <p className="text-white font-semibold">Thank you for your review!</p>
+                <p className="text-slate-400 text-sm">Your feedback helps others navigate their journey.</p>
+                <button onClick={() => setSubmitted(false)} className="btn-secondary text-sm py-2">Write another</button>
+              </>
+            ) : (
+              <>
+                <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                  <Star size={28} className="text-blue-400" />
+                </div>
+                <p className="text-white font-semibold">Used AetherVisa?</p>
+                <p className="text-slate-400 text-sm">Share what helped you — your review can guide someone else's move to Europe.</p>
+                <button onClick={() => setShowForm(v => !v)} className="btn-primary text-sm py-2.5 px-6">
+                  {showForm ? 'Cancel' : 'Leave a Review'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Review form */}
+        {showForm && (
+          <form
+            onSubmit={handleSubmit}
+            className="card border-blue-500/30 bg-blue-950/20 mb-10"
+          >
+            <h3 className="text-white font-semibold text-lg mb-6">Your review</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+              <div>
+                <label className="label">Your name <span className="text-slate-500">(optional)</span></label>
+                <input className="input" placeholder="e.g. Amara K." value={name} onChange={e => setName(e.target.value)} maxLength={60} />
+              </div>
+              <div>
+                <label className="label">Background <span className="text-slate-500">(optional)</span></label>
+                <input className="input" placeholder="e.g. PhD student · Nigeria → Spain" value={role} onChange={e => setRole(e.target.value)} maxLength={80} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+              <div>
+                <label className="label">Feature reviewed</label>
+                <select className="select" value={feature} onChange={e => setFeature(e.target.value)}>
+                  {FEATURES.map(f => <option key={f}>{f}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Overall rating <span className="text-red-400">*</span></label>
+                <StarPicker value={rating} onChange={setRating} />
+              </div>
+            </div>
+            <div className="mb-5">
+              <label className="label">Your experience <span className="text-red-400">*</span></label>
+              <textarea
+                className="input min-h-[100px] resize-y"
+                placeholder="What did you find useful? What could be better?"
+                value={text}
+                onChange={e => setText(e.target.value)}
+                maxLength={600}
+                required
+              />
+              <p className="text-slate-500 text-xs mt-1 text-right">{text.length}/600</p>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-slate-500 text-xs">Reviews are stored locally in your browser.</p>
+              <button type="submit" disabled={!rating || !text.trim()} className="btn-primary flex items-center gap-2 py-2.5 px-6 disabled:opacity-40 disabled:cursor-not-allowed">
+                <Send size={14} /> Submit Review
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Review list */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {reviews.slice(0, 6).map(r => (
+            <div key={r.id} className="card flex flex-col">
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="flex gap-0.5">
+                  {[1,2,3,4,5].map(n => (
+                    <Star key={n} size={13} className={clsx(r.rating >= n ? 'text-amber-400 fill-amber-400' : 'text-slate-600')} />
+                  ))}
+                </div>
+                <span className="badge bg-slate-700/60 text-slate-400 text-xs">{r.feature}</span>
+              </div>
+              <p className="text-slate-300 text-sm leading-relaxed flex-1 mb-5">{r.text}</p>
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-700/50">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                    {r.initials}
+                  </div>
+                  <div>
+                    <p className="text-white font-medium text-xs">{r.author}</p>
+                    <p className="text-slate-400 text-xs">{r.role}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggleHelpful(r.id)}
+                  className={clsx(
+                    'flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors',
+                    r.helpedBy.includes(userId)
+                      ? 'bg-blue-600/20 text-blue-400'
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/50'
+                  )}
+                  aria-label="Mark as helpful"
+                >
+                  <ThumbsUp size={11} /> {r.helpful > 0 && r.helpful}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        {reviews.length > 6 && (
+          <p className="text-center text-slate-500 text-sm mt-6">{reviews.length - 6} more reviews stored locally.</p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 const features = [
   {
@@ -55,30 +383,6 @@ const stats = [
   { value: '50+', label: 'Universities Tracked' },
   { value: '12', label: 'Countries Covered' },
   { value: '30min', label: 'Avg. Time Saved' },
-];
-
-const testimonials = [
-  {
-    text: '"The eligibility checker saved me from applying for the wrong visa. I would have wasted months and hundreds of euros without it."',
-    author: 'Amara K.',
-    role: 'PhD Candidate, Nigeria → Spain',
-    avatar: 'AK',
-    rating: 5,
-  },
-  {
-    text: '"The document generator gave me a hosting agreement request template that actually worked. Got my supervisor at UAB to sign in two weeks."',
-    author: 'Carlos M.',
-    role: 'Researcher, Venezuela → Spain',
-    avatar: 'CM',
-    rating: 5,
-  },
-  {
-    text: '"Finally a tool that explains EU immigration in plain language. The risk analyzer made me realize I was about to make a critical mistake."',
-    author: 'Priya S.',
-    role: 'Software Engineer, India → Netherlands',
-    avatar: 'PS',
-    rating: 5,
-  },
 ];
 
 const visaFlags = [
@@ -244,37 +548,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Testimonials */}
-      <section className="py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="section-header">
-            <h2 className="text-4xl font-bold text-white mb-4">Real people, real results</h2>
-            <p className="text-slate-400 text-lg">From across the world, navigating into Europe.</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {testimonials.map((t) => (
-              <div key={t.author} className="card">
-                <div className="flex gap-1 mb-4">
-                  {Array.from({ length: t.rating }).map((_, i) => (
-                    <Star key={i} size={14} className="text-amber-400 fill-amber-400" />
-                  ))}
-                </div>
-                <p className="text-slate-300 text-sm leading-relaxed mb-6">{t.text}</p>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-sm font-semibold">
-                    {t.avatar}
-                  </div>
-                  <div>
-                    <p className="text-white font-medium text-sm">{t.author}</p>
-                    <p className="text-slate-400 text-xs">{t.role}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <RatingsSection />
 
       {/* Pricing CTA */}
       <section className="py-24">
