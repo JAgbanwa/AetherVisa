@@ -6,12 +6,11 @@ import { calculateEligibility } from '../hooks/useEligibility';
 import { getUpdatesForVisa } from '../data/lawUpdates';
 import { LawUpdatesPill } from '../components/LawUpdatesBanner';
 import * as pdfjsLib from 'pdfjs-dist';
-// Import worker source code as a raw string and create a Blob URL.
-// This guarantees the worker is always the exact same version as the
-// main bundle — no URL resolution issues, no version mismatches possible.
-import pdfjsWorkerCode from 'pdfjs-dist/build/pdf.worker.min.js?raw';
-const _workerBlob = new Blob([pdfjsWorkerCode], { type: 'text/javascript' });
-pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(_workerBlob);
+// Point to the CDN worker that exactly matches the installed version (3.11.174).
+// Using a CDN URL is the most reliable browser approach — no bundling, no
+// version mismatches, no worker-type issues.
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
   Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink,
