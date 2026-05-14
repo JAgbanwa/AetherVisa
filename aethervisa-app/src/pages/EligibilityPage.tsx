@@ -6,16 +6,18 @@ import { calculateEligibility } from '../hooks/useEligibility';
 import { getUpdatesForVisa } from '../data/lawUpdates';
 import { LawUpdatesPill } from '../components/LawUpdatesBanner';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
+// Import worker source code as a raw string and create a Blob URL.
+// This guarantees the worker is always the exact same version as the
+// main bundle — no URL resolution issues, no version mismatches possible.
+import pdfjsWorkerCode from 'pdfjs-dist/build/pdf.worker.min.js?raw';
+const _workerBlob = new Blob([pdfjsWorkerCode], { type: 'text/javascript' });
+pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(_workerBlob);
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
   Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink,
   FileText, Upload
 } from 'lucide-react';
 import clsx from 'clsx';
-
-// pdfjs-dist v3: workerSrc string with ?url resolves the hashed asset path
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 const defaultProfile: UserProfile = {
   nationality: '',
