@@ -6,13 +6,16 @@ import { calculateEligibility } from '../hooks/useEligibility';
 import { getUpdatesForVisa } from '../data/lawUpdates';
 import { LawUpdatesPill } from '../components/LawUpdatesBanner';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 import {
   ArrowRight, ArrowLeft, CheckCircle, XCircle, AlertTriangle,
   Sparkles, ChevronRight, TrendingUp, Shield, Loader, Scale, ExternalLink,
   FileText, Upload
 } from 'lucide-react';
 import clsx from 'clsx';
+
+// pdfjs-dist v3: workerSrc string with ?url resolves the hashed asset path
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 const defaultProfile: UserProfile = {
   nationality: '',
@@ -43,27 +46,18 @@ function stripLatex(src: string): string {
 /** Extract all text from a PDF ArrayBuffer using pdf.js */
 async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
   const data = new Uint8Array(buffer);
-  // Explicitly create a module Worker and pass it via PDFWorker.create() —
-  // the only reliable way in pdfjs-dist v5 since disableWorker was removed
-  // and workerSrc alone can't load .mjs files in classic Worker mode.
-  const port = new Worker(pdfjsWorkerUrl, { type: 'module' });
-  const pdfWorker = pdfjsLib.PDFWorker.create({ port, verbosity: 0 });
-  try {
-    const pdf = await pdfjsLib.getDocument({ data, worker: pdfWorker }).promise;
-    const parts: string[] = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      parts.push(
-        content.items
-          .map((item) => ('str' in item ? (item as { str: string }).str : ''))
-          .join(' ')
-      );
-    }
-    return parts.join('\n');
-  } finally {
-    pdfWorker.destroy();
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const parts: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    parts.push(
+      content.items
+        .map((item) => ('str' in item ? (item as { str: string }).str : ''))
+        .join(' ')
+    );
   }
+  return parts.join('\n');
 }
 
 const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const;
